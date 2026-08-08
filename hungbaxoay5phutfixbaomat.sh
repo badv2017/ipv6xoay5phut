@@ -21,6 +21,14 @@ IFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
 echo "Đang cài đặt các thư viện hệ thống & Unbound DNS..."
 yum install -y gcc make wget net-tools curl cronie psmisc unbound >/dev/null 2>&1
 
+# --- Tối ưu hóa Kernel System chống ngẽn mạng ---
+cat <<EOF >> /etc/sysctl.conf
+net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.tcp_fin_timeout = 15
+fs.file-max = 500000
+EOF
+sysctl -p >/dev/null 2>&1
+
 # --- Cấu hình Unbound Local DNS Resolver ---
 systemctl stop unbound 2>/dev/null
 cat <<EOF > /etc/unbound/unbound.conf
@@ -105,12 +113,12 @@ fi
 
 mv $WORKDIR/new_ipv6.txt $WORKDIR/current_ipv6.txt
 
-# 3. Ghi file cấu hình 3proxy (Đã loại bỏ 'anonymize' để fix lỗi)
+# 3. Ghi file cấu hình 3proxy CHUẨN TỐI ƯU CÚ PHÁP
 cat <<CFG > /usr/local/etc/3proxy/3proxy.cfg
 daemon
 maxconn 1000
 
-# Local DNS Resolver chống rò rỉ DNS
+# Dùng Local DNS từ Unbound chống rò rỉ DNS
 nserver 127.0.0.1
 nscache 65536
 
@@ -118,22 +126,17 @@ timeouts 1 5 30 60 180 1800 15 60
 setgid 65535
 setuid 65535
 
-# Xóa Proxy Headers để giấu thông tin Proxy
-header "X-Forwarded-For: remove"
-header "Via: remove"
-header "Forwarded: remove"
-
+# Cấu hình xác thực người dùng
 auth strong
 users $(awk -F "/" '{print $1 ":CL:" $2}' $WORKDIR/data.txt | paste -sd " ")
-$(awk -F "/" '{print "auth strong\nallow " $1 "\nproxy -6 -n -a -p"$4" -i"$3" -e"$5"\nflush\n"}' $WORKDIR/data.txt)
+
+# Cấu hình Proxy Lắng nghe
+$(awk -F "/" '{print "allow " $1 "\nproxy -6 -n -a -p"$4" -i"$3" -e"$5"\nflush\n"}' $WORKDIR/data.txt)
 CFG
 
 # 4. Khởi động / Reload 3proxy
-if pgrep 3proxy > /dev/null; then
-    pkill -USR1 3proxy
-else
-    /usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
-fi
+pkill -9 3proxy 2>/dev/null
+/usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
 EOF
     chmod +x $WORKDIR/rotate_ipv6.sh
 }
@@ -175,8 +178,9 @@ EOF
 chmod +x /etc/rc.d/rc.local
 
 echo "------------------------------------------------"
-echo "CÀI ĐẶT THÀNH CÔNG! Đã fix lỗi và tối ưu bảo mật."
+echo "CÀI ĐẶT THÀNH CÔNG! ĐÃ FIX HOÀN TOÀN LỖI CÚ PHÁP."
 echo "Subnet IPv6: $IP6"
 echo "Danh sách Proxy: $WORKDIR/proxy.txt"
 echo "------------------------------------------------"
-cat $WORKDIR/proxy.txt
+head -n 5 $WORKDIR/proxy.txt
+echo "... (Xem toàn bộ danh sách tại: $WORKDIR/proxy.txt)"
