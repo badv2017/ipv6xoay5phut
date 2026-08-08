@@ -5,11 +5,25 @@ WORKDIR="/home/anhhungproxy"
 mkdir -p $WORKDIR
 cd $WORKDIR
 
+# Lấy dải IPv6 từ tham số truyền vào $1
+RAW_IP6="$1"
+
+# Nếu không truyền tham số, hỏi và bắt buộc phải nhập khác rỗng
+while [ -z "$RAW_IP6" ]; do
+    read -p "Nhập subnet IPv6 /48 (ví dụ 2602:fa81:b): " RAW_IP6
+    # Loại bỏ khoảng trắng
+    RAW_IP6=$(echo "$RAW_IP6" | xargs)
+done
+
+# Chuẩn hóa IPv6 Subnet (Xóa dấu : thừa ở cuối nếu có)
+IP6=$(echo $RAW_IP6 | sed 's/:*$//')
+
 # Auto nhận diện card mạng chính
 IFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
 [ -z "$IFACE" ] && IFACE="eth0"
 
 # Tự động cài đặt gói phụ thuộc (RHEL/CentOS)
+echo "Đang cài đặt các thư viện cần thiết..."
 yum install -y gcc make wget net-tools curl cronie psmisc >/dev/null 2>&1
 systemctl start crond && systemctl enable crond
 
@@ -53,7 +67,7 @@ IFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
 
 source $WORKDIR/config.env
 
-# Đảm bảo ulimit cao cho tiến trình 3proxy
+# Nâng giới hạn file handle
 ulimit -n 100000
 
 gen48() {
@@ -71,7 +85,7 @@ while IFS="/" read -r user pass ip4 port; do
     ip -6 addr add $new_ip6/64 dev $IFACE
 done < $WORKDIR/data_static.txt
 
-# 2. Xóa IP cũ SAU (Giảm thời gian gián đoạn mạng)
+# 2. Xóa IP cũ SAU
 if [ -f $WORKDIR/current_ipv6.txt ]; then
     while read old_ip; do
         ip -6 addr del $old_ip/64 dev $IFACE 2>/dev/null
@@ -95,7 +109,7 @@ users $(awk -F "/" '{print $1 ":CL:" $2}' $WORKDIR/data.txt | paste -sd " ")
 $(awk -F "/" '{print "auth strong\nallow " $1 "\nproxy -6 -n -a -p"$4" -i"$3" -e"$5"\nflush\n"}' $WORKDIR/data.txt)
 CFG
 
-# 4. Kiếm tra và khởi động/reload 3proxy an toàn
+# 4. Kiếm tra và khởi động/reload 3proxy
 if pgrep 3proxy > /dev/null; then
     pkill -USR1 3proxy
 else
@@ -111,11 +125,6 @@ gen_proxy_txt() {
 
 # --- MAIN SCRIPT ---
 IP4=$(curl -4 -s ifconfig.co)
-read -p "Nhập subnet IPv6 /48 (ví dụ: 2602:fa81:b): " RAW_IP6
-
-# Chuẩn hóa IPv6 Subnet (Tự động xóa dấu : thừa ở cuối nếu có)
-IP6=$(echo $RAW_IP6 | sed 's/:*$//')
-
 START_PORT=21000
 END_PORT=21999
 
@@ -133,7 +142,7 @@ iptables -I INPUT -p tcp --dport $START_PORT:$END_PORT -j ACCEPT
 # Chạy xoay IP lần đầu
 bash $WORKDIR/rotate_ipv6.sh
 
-# Cài đặt Cronjob (Thêm ulimit trực tiếp trước khi gọi script)
+# Cài đặt Cronjob (5 phút xoay 1 lần)
 CRON_CMD="*/5 * * * * ulimit -n 100000 && bash $WORKDIR/rotate_ipv6.sh >/dev/null 2>&1"
 (crontab -l 2>/dev/null | grep -v "rotate_ipv6.sh" ; echo "$CRON_CMD") | crontab -
 
@@ -147,7 +156,7 @@ EOF
 chmod +x /etc/rc.d/rc.local
 
 echo "------------------------------------------------"
-echo "HOÀN TẤT! Script đã được kiểm tra và chạy an toàn."
+echo "HOÀN TẤT! Đã cài đặt với dải IPv6: $IP6"
 echo "Proxy lưu tại: $WORKDIR/proxy.txt"
 echo "------------------------------------------------"
 cat $WORKDIR/proxy.txt
