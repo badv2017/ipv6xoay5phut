@@ -9,7 +9,7 @@ RAW_IP6="$1"
 
 # Kiểm tra đầu vào IPv6
 while [ -z "$RAW_IP6" ]; do
-    read -p "Nhập subnet IPv6 /48 (ví dụ 2602:fa81:b): " RAW_IP6
+    read -p "Nhập subnet IPv6 /48 (ví dụ 2a0a:8dc0:276): " RAW_IP6
     RAW_IP6=$(echo "$RAW_IP6" | xargs)
 done
 
@@ -21,7 +21,7 @@ IFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
 echo "Đang cài đặt các thư viện hệ thống & Unbound DNS..."
 yum install -y gcc make wget net-tools curl cronie psmisc unbound >/dev/null 2>&1
 
-# --- GIẢI PHÁP 2: Cấu hình Unbound Local DNS Resolver ---
+# --- Cấu hình Unbound Local DNS Resolver ---
 systemctl stop unbound 2>/dev/null
 cat <<EOF > /etc/unbound/unbound.conf
 server:
@@ -105,12 +105,12 @@ fi
 
 mv $WORKDIR/new_ipv6.txt $WORKDIR/current_ipv6.txt
 
-# 3. Ghi file cấu hình 3proxy (ĐÃ THÊM BẢO MẬT G1 & G2)
+# 3. Ghi file cấu hình 3proxy (Đã loại bỏ 'anonymize' để fix lỗi)
 cat <<CFG > /usr/local/etc/3proxy/3proxy.cfg
 daemon
 maxconn 1000
 
-# Sử dụng Local DNS Resolver từ Unbound (Giải pháp 2)
+# Local DNS Resolver chống rò rỉ DNS
 nserver 127.0.0.1
 nscache 65536
 
@@ -118,8 +118,7 @@ timeouts 1 5 30 60 180 1800 15 60
 setgid 65535
 setuid 65535
 
-# Bật Anonymize & Xóa Proxy Headers (Giải pháp 1)
-anonymize
+# Xóa Proxy Headers để giấu thông tin Proxy
 header "X-Forwarded-For: remove"
 header "Via: remove"
 header "Forwarded: remove"
@@ -158,7 +157,7 @@ gen_rotate_script
 # Mở Firewall
 iptables -I INPUT -p tcp --dport $START_PORT:$END_PORT -j ACCEPT
 
-# Chạy lần đầu
+# Chạy xoay IP lần đầu
 bash $WORKDIR/rotate_ipv6.sh
 
 # Cài Cronjob xoay IP 5 phút/lần
@@ -176,8 +175,8 @@ EOF
 chmod +x /etc/rc.d/rc.local
 
 echo "------------------------------------------------"
-echo "CÀI ĐẶT THÀNH CÔNG! Đã tối ưu bảo mật & chống rò rỉ DNS."
-echo "Dải IPv6 sử dụng: $IP6"
+echo "CÀI ĐẶT THÀNH CÔNG! Đã fix lỗi và tối ưu bảo mật."
+echo "Subnet IPv6: $IP6"
 echo "Danh sách Proxy: $WORKDIR/proxy.txt"
 echo "------------------------------------------------"
 cat $WORKDIR/proxy.txt
