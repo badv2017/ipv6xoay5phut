@@ -55,7 +55,7 @@ random() {
 install_3proxy() {
     if [ ! -f /usr/local/etc/3proxy/bin/3proxy ]; then
         echo "Đang tải và biên dịch 3proxy..."
-        URL="https://github.com/z3APA3A/3proxy/archive/3proxy-0.8.6.tar.gz"
+        URL="https://github.com/3proxy/3proxy/archive/refs/tags/0.9.7.tar.gz"
         wget -qO- $URL | tar -xz
         cd 3proxy-3proxy-0.8.6
         make -f Makefile.Linux
