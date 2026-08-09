@@ -128,13 +128,10 @@ fi
 
 mv $WORKDIR/new_ipv6.txt $WORKDIR/current_ipv6.txt
 
-# 3. Ghi file cấu hình 3proxy chuẩn cú pháp 'anonymous'
+# 3. Ghi file cấu hình 3proxy CHUẨN CÚ PHÁP
 cat <<CFG > /usr/local/etc/3proxy/3proxy.cfg
 daemon
 maxconn 1000
-
-# Bật chế độ Elite Anonymity (xóa VIA/X-Forwarded-For header)
-anonymous
 
 # Dùng Local DNS từ Unbound chống rò rỉ DNS
 nserver 127.0.0.1
