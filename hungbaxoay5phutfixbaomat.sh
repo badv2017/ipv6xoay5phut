@@ -21,15 +21,16 @@ IFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
 echo "Đang cài đặt các thư viện hệ thống & Unbound DNS..."
 yum install -y gcc make wget net-tools curl cronie psmisc unbound >/dev/null 2>&1
 
-# --- Tối ưu hóa Kernel System chống ngẽn mạng ---
-cat <<EOF >> /etc/sysctl.conf
+# --- Tối ưu hóa Kernel System chống nghẽn & tăng giới hạn kết nối ---
+cat <<EOF > /etc/sysctl.d/99-proxy-tune.conf
 net.ipv4.ip_local_port_range = 1024 65535
 net.ipv4.tcp_fin_timeout = 15
 fs.file-max = 500000
+net.core.somaxconn = 10240
 EOF
-sysctl -p >/dev/null 2>&1
+sysctl -p /etc/sysctl.d/99-proxy-tune.conf >/dev/null 2>&1
 
-# --- Cấu hình Unbound Local DNS Resolver ---
+# --- Cấu hình Unbound Local DNS Resolver (Chống Rò Rỉ DNS & Bảo Vệ Server) ---
 systemctl stop unbound 2>/dev/null
 cat <<EOF > /etc/unbound/unbound.conf
 server:
@@ -40,6 +41,7 @@ server:
     do-ip6: yes
     do-udp: yes
     do-tcp: yes
+    access-control: 0.0.0.0/0 refuse
     access-control: 127.0.0.0/8 allow
     hide-identity: yes
     hide-version: yes
@@ -48,21 +50,23 @@ systemctl restart unbound && systemctl enable unbound >/dev/null 2>&1
 systemctl start crond && systemctl enable crond >/dev/null 2>&1
 
 random() {
-    tr </dev/urandom -dc A-Za-z0-9 | head -c5
+    tr </dev/urandom -dc A-Za-z0-9 | head -c8
     echo
 }
 
+# --- Sửa lỗi đường dẫn giải nén 3proxy ---
 install_3proxy() {
     if [ ! -f /usr/local/etc/3proxy/bin/3proxy ]; then
         echo "Đang tải và biên dịch 3proxy..."
-        URL="https://github.com/3proxy/3proxy/archive/refs/tags/0.9.7.tar.gz"
+        VERSION="0.9.4"
+        URL="https://github.com/3proxy/3proxy/archive/refs/tags/${VERSION}.tar.gz"
         wget -qO- $URL | tar -xz
-        cd 3proxy-3proxy-0.8.6
+        cd 3proxy-${VERSION}
         make -f Makefile.Linux
         mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
         cp src/3proxy /usr/local/etc/3proxy/bin/
         cd ..
-        rm -rf 3proxy-3proxy-0.8.6
+        rm -rf 3proxy-${VERSION}
     fi
 }
 
@@ -101,7 +105,7 @@ while IFS="/" read -r user pass ip4 port; do
     new_ip6=$(gen48 $IP6)
     echo "$user/$pass/$ip4/$port/$new_ip6" >> $WORKDIR/data.txt
     echo "$new_ip6" >> $WORKDIR/new_ipv6.txt
-    ip -6 addr add $new_ip6/64 dev $IFACE
+    ip -6 addr add $new_ip6/64 dev $IFACE 2>/dev/null
 done < $WORKDIR/data_static.txt
 
 # 2. Xóa IPv6 cũ
@@ -113,10 +117,13 @@ fi
 
 mv $WORKDIR/new_ipv6.txt $WORKDIR/current_ipv6.txt
 
-# 3. Ghi file cấu hình 3proxy CHUẨN TỐI ƯU CÚ PHÁP
+# 3. Ghi file cấu hình 3proxy CHẨN BẢO MẬT & ẨN DẠNH (ELITE PROXY)
 cat <<CFG > /usr/local/etc/3proxy/3proxy.cfg
 daemon
 maxconn 1000
+
+# Bật chế độ Elite Anonymity: Xóa toàn bộ header rò rỉ proxy
+anonymize
 
 # Dùng Local DNS từ Unbound chống rò rỉ DNS
 nserver 127.0.0.1
@@ -157,7 +164,7 @@ gen_fixed_data
 gen_proxy_txt
 gen_rotate_script
 
-# Mở Firewall
+# Mở Firewall cho cổng Proxy
 iptables -I INPUT -p tcp --dport $START_PORT:$END_PORT -j ACCEPT
 
 # Chạy xoay IP lần đầu
@@ -178,7 +185,7 @@ EOF
 chmod +x /etc/rc.d/rc.local
 
 echo "------------------------------------------------"
-echo "CÀI ĐẶT THÀNH CÔNG! ĐÃ FIX HOÀN TOÀN LỖI CÚ PHÁP."
+echo "CÀI ĐẶT THÀNH CÔNG (ĐÃ BỔ SUNG CƠ CHẾ ẨN DẠNH ELITE)!"
 echo "Subnet IPv6: $IP6"
 echo "Danh sách Proxy: $WORKDIR/proxy.txt"
 echo "------------------------------------------------"
