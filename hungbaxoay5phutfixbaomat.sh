@@ -21,7 +21,7 @@ IFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
 echo "Đang cài đặt các thư viện hệ thống & Unbound DNS..."
 yum install -y gcc make wget net-tools curl cronie psmisc unbound >/dev/null 2>&1
 
-# --- Tối ưu hóa Kernel System chống nghẽn & tăng giới hạn kết nối ---
+# --- Tối ưu hóa Kernel System ---
 cat <<EOF > /etc/sysctl.d/99-proxy-tune.conf
 net.ipv4.ip_local_port_range = 1024 65535
 net.ipv4.tcp_fin_timeout = 15
@@ -30,7 +30,7 @@ net.core.somaxconn = 10240
 EOF
 sysctl -p /etc/sysctl.d/99-proxy-tune.conf >/dev/null 2>&1
 
-# --- Cấu hình Unbound Local DNS Resolver (Chống Rò Rỉ DNS & Bảo Vệ Server) ---
+# --- Cấu hình Unbound Local DNS Resolver ---
 systemctl stop unbound 2>/dev/null
 cat <<EOF > /etc/unbound/unbound.conf
 server:
@@ -54,17 +54,29 @@ random() {
     echo
 }
 
-# --- Sửa lỗi đường dẫn giải nén 3proxy ---
+# --- Cài đặt 3proxy chuẩn đường dẫn ---
 install_3proxy() {
     if [ ! -f /usr/local/etc/3proxy/bin/3proxy ]; then
         echo "Đang tải và biên dịch 3proxy..."
         VERSION="0.9.4"
         URL="https://github.com/3proxy/3proxy/archive/refs/tags/${VERSION}.tar.gz"
+        
+        rm -rf 3proxy-${VERSION}
         wget -qO- $URL | tar -xz
         cd 3proxy-${VERSION}
+        
+        make -f Makefile.Linux clean >/dev/null 2>&1
         make -f Makefile.Linux
+        
         mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
-        cp src/3proxy /usr/local/etc/3proxy/bin/
+        
+        # Kiểm tra chuẩn vị trí file thực thi sau khi make
+        if [ -f bin/3proxy ]; then
+            cp bin/3proxy /usr/local/etc/3proxy/bin/
+        elif [ -f src/3proxy ]; then
+            cp src/3proxy /usr/local/etc/3proxy/bin/
+        fi
+        
         cd ..
         rm -rf 3proxy-${VERSION}
     fi
@@ -117,15 +129,13 @@ fi
 
 mv $WORKDIR/new_ipv6.txt $WORKDIR/current_ipv6.txt
 
-# 3. Ghi file cấu hình 3proxy CHẨN BẢO MẬT & ẨN DẠNH (ELITE PROXY)
+# 3. Ghi file cấu hình 3proxy
 cat <<CFG > /usr/local/etc/3proxy/3proxy.cfg
 daemon
 maxconn 1000
 
-# Bật chế độ Elite Anonymity: Xóa toàn bộ header rò rỉ proxy
 anonymize
 
-# Dùng Local DNS từ Unbound chống rò rỉ DNS
 nserver 127.0.0.1
 nscache 65536
 
@@ -133,11 +143,9 @@ timeouts 1 5 30 60 180 1800 15 60
 setgid 65535
 setuid 65535
 
-# Cấu hình xác thực người dùng
 auth strong
 users $(awk -F "/" '{print $1 ":CL:" $2}' $WORKDIR/data.txt | paste -sd " ")
 
-# Cấu hình Proxy Lắng nghe
 $(awk -F "/" '{print "allow " $1 "\nproxy -6 -n -a -p"$4" -i"$3" -e"$5"\nflush\n"}' $WORKDIR/data.txt)
 CFG
 
@@ -185,7 +193,7 @@ EOF
 chmod +x /etc/rc.d/rc.local
 
 echo "------------------------------------------------"
-echo "CÀI ĐẶT THÀNH CÔNG (ĐÃ BỔ SUNG CƠ CHẾ ẨN DẠNH ELITE)!"
+echo "CÀI ĐẶT THÀNH CÔNG!"
 echo "Subnet IPv6: $IP6"
 echo "Danh sách Proxy: $WORKDIR/proxy.txt"
 echo "------------------------------------------------"
