@@ -54,7 +54,7 @@ random() {
     echo
 }
 
-# --- Cài đặt 3proxy chuẩn đường dẫn ---
+# --- Cài đặt 3proxy ---
 install_3proxy() {
     if [ ! -f /usr/local/etc/3proxy/bin/3proxy ]; then
         echo "Đang tải và biên dịch 3proxy..."
@@ -70,7 +70,6 @@ install_3proxy() {
         
         mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
         
-        # Kiểm tra chuẩn vị trí file thực thi sau khi make
         if [ -f bin/3proxy ]; then
             cp bin/3proxy /usr/local/etc/3proxy/bin/
         elif [ -f src/3proxy ]; then
@@ -129,13 +128,15 @@ fi
 
 mv $WORKDIR/new_ipv6.txt $WORKDIR/current_ipv6.txt
 
-# 3. Ghi file cấu hình 3proxy
+# 3. Ghi file cấu hình 3proxy chuẩn cú pháp 'anonymous'
 cat <<CFG > /usr/local/etc/3proxy/3proxy.cfg
 daemon
 maxconn 1000
 
-anonymize
+# Bật chế độ Elite Anonymity (xóa VIA/X-Forwarded-For header)
+anonymous
 
+# Dùng Local DNS từ Unbound chống rò rỉ DNS
 nserver 127.0.0.1
 nscache 65536
 
