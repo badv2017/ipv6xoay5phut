@@ -7,26 +7,34 @@ random() {
     echo
 }
 
-# 2. Tạo IPv6 chuẩn từ Prefix /48 (Prefix + 5 nhóm hex = 128 bit)
+# 2. Tạo IPv6 chuẩn từ Prefix /48
 gen48() {
     printf "$1:%x:%x:%x:%x:%x\n" \
         $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536)) $((RANDOM%65536))
 }
 
-# 3. Cài đặt 3proxy phiên bản mới ổn định hơn
+# 3. Cài đặt 3proxy v0.9.4 mới nhất
 install_3proxy() {
-    echo "=== Cài đặt 3proxy ==="
-    URL="https://github.com/z3APA3A/3proxy/archive/3proxy-0.8.13.tar.gz"
-    wget -qO- $URL | tar -xz
-    cd 3proxy-3proxy-0.8.13
+    echo "=== Cài đặt 3proxy v0.9.4 ==="
+    cd $WORKDIR
+    rm -rf 3proxy*
+    
+    # Tải trực tiếp bản release 0.9.4 chuẩn từ GitHub
+    wget --no-check-certificate -qO 3proxy-0.9.4.tar.gz https://github.com/3proxy/3proxy/archive/refs/tags/0.9.4.tar.gz
+    tar -xzf 3proxy-0.9.4.tar.gz
+    cd 3proxy-0.9.4
+    
+    # Biên dịch
     make -f Makefile.Linux
+    
+    # Copy file thực thi
     mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
-    cp src/3proxy /usr/local/etc/3proxy/bin/
-    cd ..
-    rm -rf 3proxy-3proxy-0.8.13
+    cp bin/3proxy /usr/local/etc/3proxy/bin/ 2>/dev/null || cp src/3proxy /usr/local/etc/3proxy/bin/
+    cd $WORKDIR
+    rm -rf 3proxy-0.9.4*
 }
 
-# 4. Tạo file cấu hình 3proxy chống phát hiện (Stealth Mode)
+# 4. Tạo file cấu hình 3proxy 0.9.4 (Stealth Mode / Anti-Detect)
 gen_3proxy_cfg() {
     cat <<EOF
 daemon
@@ -47,7 +55,7 @@ $(awk -F "/" '{print "auth strong\nallow " $1 "\nproxy -6 -n -a -p"$4" -i"$3" -e
 EOF
 }
 
-# 5. Tạo file xuất ra dạng USER:PASS:IP:PORT
+# 5. Định dạng file proxy.txt (USER:PASS:IP:PORT)
 gen_proxy_txt() {
     awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2}' $WORKDIR/data.txt > $WORKDIR/proxy.txt
 }
@@ -59,15 +67,14 @@ gen_data() {
     done
 }
 
-# 7. Tạo script gán IP và mở Firewall
+# 7. Tạo script gán IP và cấu hình Firewall
 gen_network_scripts() {
-    # Script gán 5000 IP
     cat <<EOF > $WORKDIR/boot_ifconfig.sh
 #!/bin/bash
-awk -F "/" '{print "ip -6 addr add "$5"/64 dev eth0"}' $WORKDIR/data.txt | bash
+awk -F "/" '{if ($5 != "") print "ip -6 addr add "$5"/64 dev eth0"}' $WORKDIR/data.txt > $WORKDIR/add_ip.sh
+bash $WORKDIR/add_ip.sh >/dev/null 2>&1
 EOF
 
-    # Script mở Port Firewall hàng loạt
     cat <<EOF > $WORKDIR/boot_iptables.sh
 #!/bin/bash
 iptables -I INPUT -p tcp --dport $START_PORT:$END_PORT -j ACCEPT
@@ -76,10 +83,10 @@ EOF
     chmod +x $WORKDIR/boot_*.sh
 }
 
-# 8. Tối ưu Kernel Linux cho 5000 kết nối
+# 8. Tối ưu Kernel Linux
 tune_system() {
     cat <<EOF >> /etc/sysctl.conf
-net.ipv7.ip_forward = 1
+net.ipv4.ip_forward = 1
 net.ipv6.conf.all.forwarding = 1
 net.ipv6.conf.eth0.proxy_ndp = 1
 net.ipv4.ip_local_port_range = 1024 65535
@@ -89,7 +96,7 @@ EOF
     sysctl -p >/dev/null 2>&1
 }
 
-# 9. Cấu hình tự khởi động cùng OS
+# 9. Cấu hình tự khởi động cùng hệ thống
 setup_rc_local() {
     cat <<EOF > /etc/rc.d/rc.local
 #!/bin/bash
@@ -102,28 +109,32 @@ EOF
 }
 
 ### CHƯƠNG TRÌNH CHÍNH ###
-echo "=== Bắt đầu cài đặt 5000 IPv6 Proxy ==="
+echo "=== Bắt đầu cài đặt 5000 IPv6 Proxy (3proxy v0.9.4) ==="
 yum install -y gcc make wget net-tools curl bsdtar zip
 
 WORKDIR="/home/anhhungproxy"
 mkdir -p $WORKDIR
 cd $WORKDIR
 
-# Kiểm tra IPv4 tự động
-IP4=$(curl -4 -s ifconfig.co)
+# Lấy IPv4 tự động
+IP4=$(curl -4 -s ifconfig.co || curl -4 -s icanhazip.com)
 
-# Nhập Subnet IPv6 /48
-# Lưu ý: Với dải của bạn 2a0a:8dc0:f1::/48 thì nhập vào là: 2a0a:8dc0:f1
-read -p "Nhập IPv6 /48 Prefix (ví dụ: 2a0a:8dc0:f1): " IP6
+# Nhập và làm sạch IPv6 Prefix
+read -p "Nhập IPv6 /48 Prefix (Ví dụ 2a0a:8dc0:f1): " RAW_IP6
+IP6=$(echo $RAW_IP6 | sed -E 's/::\/[0-9]+//g' | sed -E 's/:\+$//g')
 
-# Khai báo dải 5000 Port (Tương ứng 5000 Proxy)
+if [ -z "$IP6" ]; then
+    echo "[!] Lỗi: IP6 Prefix không hợp lệ!"
+    exit 1
+fi
+
 START_PORT=10000
 END_PORT=14999
 
-echo "[+] Đang tạo danh sách 5000 IPv6 ngẫu nhiên..."
+echo "[+] Đang khởi tạo danh sách 5000 IPv6..."
 gen_data > data.txt
 
-echo "[+] Đang cài đặt 3proxy..."
+echo "[+] Đang tải và biên dịch 3proxy v0.9.4..."
 install_3proxy
 
 echo "[+] Đang tối ưu hệ thống & tạo cấu hình..."
@@ -140,7 +151,7 @@ bash $WORKDIR/boot_iptables.sh
 /usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
 
 echo "=================================================="
-echo " HOÀN TẤT! Đã tạo xong 5000 IPv6 Proxy."
+echo " HOÀN TẤT! Đã nâng cấp lên 3proxy v0.9.4 và tạo xong 5000 Proxy."
 echo " File danh sách Proxy: $WORKDIR/proxy.txt"
 echo " Format: IP4:PORT:USER:PASS"
 echo "=================================================="
