@@ -5,10 +5,9 @@ WORKDIR="/home/anhhungproxy"
 mkdir -p $WORKDIR
 cd $WORKDIR
 
-# 1. Hàm tạo mật khẩu ngẫu nhiên
+# 1. Hàm tạo mật khẩu ngẫu nhiên (Làm sạch ký tự thừa)
 random() {
-    tr </dev/urandom -dc A-Za-z0-9 | head -c8
-    echo
+    tr -dc 'A-Za-z0-9' </dev/urandom | head -c8
 }
 
 # 2. Hàm tạo IPv6 ngẫu nhiên từ Prefix /48
@@ -32,8 +31,8 @@ END_PORT=14999
 
 echo "[+] Đang khởi tạo danh sách 5000 IPv6..."
 rm -f $WORKDIR/data.txt
-seq $START_PORT $END_PORT | while read port; do
-    echo "user$port/$(random)/$IP4/$port/$(gen48 $IP6)">> $WORKDIR/data.txt
+for port in $(seq $START_PORT $END_PORT); do
+    echo "user$port/$(random)/$IP4/$port/$(gen48 $IP6)" >> $WORKDIR/data.txt
 done
 
 # 4. Cài đặt 3proxy 0.9.4
@@ -50,12 +49,13 @@ mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
 cp bin/3proxy /usr/local/etc/3proxy/bin/ 2>/dev/null || cp src/3proxy /usr/local/etc/3proxy/bin/
 cd $WORKDIR
 
-# 5. Tạo file Mật khẩu và Cấu hình 3proxy chuẩn 0.9.x
+# 5. Tạo file Mật khẩu và Cấu hình 3proxy
 echo "[+] Đang tạo cấu hình 3proxy..."
+
 # Tạo file lưu danh sách USERS
 awk -F "/" '{print $1 ":CL:" $2}' $WORKDIR/data.txt > /usr/local/etc/3proxy/3proxy.passwd
 
-# Tạo file 3proxy.cfg chuẩn Anti-Detection
+# Tạo header file 3proxy.cfg
 cat <<'EOF' > /usr/local/etc/3proxy/3proxy.cfg
 daemon
 maxconn 100000
@@ -67,14 +67,16 @@ timeouts 1 5 30 60 180 1800 15 60
 setgid 65535
 setuid 65535
 
+# Cấu hình xác thực người dùng
 users $/usr/local/etc/3proxy/3proxy.passwd
 auth strong
+allow *
 EOF
 
-# Thêm từng rule proxy vào file cấu hình
-awk -F "/" '{print "allow " $1 "\nproxy -6 -n -a -p"$4" -i"$3" -e"$5"\nflush"}' $WORKDIR/data.txt >> /usr/local/etc/3proxy/3proxy.cfg
+# Thêm danh sách port proxy (Sửa bỏ bớt lệnh flush dư thừa gây lỗi)
+awk -F "/" '{print "proxy -6 -n -a -p"$4" -i"$3" -e"$5}' $WORKDIR/data.txt >> /usr/local/etc/3proxy/3proxy.cfg
 
-# 6. Xuất file proxy.txt (USER:PASS:IP:PORT)
+# 6. Xuất file proxy.txt chuẩn dạng IP:PORT:USER:PASS
 awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2}' $WORKDIR/data.txt > $WORKDIR/proxy.txt
 
 # 7. Script gán 5000 IP v6 vào Card eth0
@@ -110,6 +112,7 @@ cat <<'EOF' > /etc/rc.d/rc.local
 ulimit -n 500000
 bash /home/anhhungproxy/boot_ifconfig.sh
 bash /home/anhhungproxy/boot_iptables.sh
+pkill 3proxy
 /usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
 EOF
 chmod +x /etc/rc.d/rc.local
@@ -119,9 +122,11 @@ echo "[+] Đang gán 5000 IP IPv6 và khởi chạy 3proxy..."
 ulimit -n 500000
 bash $WORKDIR/boot_ifconfig.sh
 bash $WORKDIR/boot_iptables.sh
+pkill 3proxy
 /usr/local/etc/3proxy/bin/3proxy /usr/local/etc/3proxy/3proxy.cfg
 
 echo "=================================================="
 echo " HOÀN TẤT THÀNH CÔNG!"
-echo " File danh sách Proxy: $WORKDIR/proxy.txt"
+echo " File danh sách Proxy xuất ra dạng (IP:PORT:USER:PASS):"
+echo " $WORKDIR/proxy.txt"
 echo "=================================================="
