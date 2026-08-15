@@ -98,6 +98,13 @@ server:
     access-control: 127.0.0.0/8 allow
     hide-identity: yes
     hide-version: yes
+
+forward-zone:
+    name: "."
+    forward-ssl-upstream: yes
+    forward-first: no
+    forward-addr: 1.1.1.1@853
+    forward-addr: 1.0.0.1@853
 EOF
 unbound-checkconf
 systemctl enable --now unbound
